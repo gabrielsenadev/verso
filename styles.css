@@ -1,0 +1,93 @@
+/* ===== Container ===== */
+#ytms-synced-lyrics-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  font-family: 'YouTube Sans', 'Roboto', sans-serif;
+  user-select: none;
+  -webkit-user-select: none;
+  overflow: hidden;
+}
+
+/* ===== Scroll Wrapper ===== */
+.ytms-lyrics-scroll-wrapper {
+  height: 100%;
+  overflow-y: auto;
+  scroll-behavior: smooth;
+  padding: 0 24px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.ytms-lyrics-scroll-wrapper::-webkit-scrollbar {
+  display: none;
+}
+
+/* ===== Spacers (center first/last lines) ===== */
+.ytms-lyrics-spacer-top,
+.ytms-lyrics-spacer-bottom {
+  height: 45%;
+}
+
+/* ===== Lyric Lines ===== */
+.ytms-lyric-line {
+  padding: 8px 0;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  transition: color 0.25s ease, font-size 0.25s ease, font-weight 0.25s ease;
+  will-change: color;
+}
+
+.ytms-lyric-line:hover {
+  color: rgba(255, 255, 255, 0.65);
+}
+
+/* ===== Active Line ===== */
+.ytms-lyric-line.ytms-active {
+  color: rgba(255, 255, 255, 1.0);
+  font-size: 24px;
+  font-weight: 700;
+}
+
+/* ===== Past Lines ===== */
+.ytms-lyric-line.ytms-past {
+  color: rgba(255, 255, 255, 0.35);
+}
+
+/* ===== No Lyrics / Fallback ===== */
+.ytms-no-lyrics {
+  text-align: center;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 16px;
+  padding: 48px 24px;
+}
+
+.ytms-plain-lyrics {
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 16px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  padding: 16px 0;
+}
+
+/* ===== Source Attribution ===== */
+.ytms-lyrics-source {
+  position: absolute;
+  bottom: 8px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.3);
+  pointer-events: none;
+}
+
+/* ===== Fallback mode ===== */
+#ytms-synced-lyrics-container.ytms-fallback-mode .ytms-lyrics-spacer-top,
+#ytms-synced-lyrics-container.ytms-fallback-mode .ytms-lyrics-spacer-bottom {
+  height: 16px;
+}
