@@ -10,15 +10,19 @@ Works on Chrome/Chromium (MV3) and Firefox 128+.
 
 ## Requirements
 
-- [Node.js](https://nodejs.org) 18 or newer (only for building — the extension
-  itself ships no dependencies)
+- [Node.js](https://nodejs.org) 22.18 or newer (24 LTS recommended). The build
+  script itself is TypeScript, run through Node's built-in type stripping.
 - Chrome/Chromium/Edge, and/or Firefox **128+**
+
+The extension is written in TypeScript and bundled to plain JS with esbuild; the
+shipped extension still has no runtime dependencies.
 
 ## Build
 
 ```bash
-npm install          # only needed for `dev:firefox`, `lint:firefox` and `package`
-npm run build        # builds both targets
+npm install          # required: the build uses esbuild + typescript
+npm run build        # production build of both targets
+npm run build:dev    # development build (logging + inline source maps)
 ```
 
 This produces two unpacked extension directories:
@@ -39,7 +43,9 @@ Other commands:
 
 | Command | What it does |
 | --- | --- |
-| `npm test` | Runs the build tests (`node --test`, no dependencies needed) |
+| `npm test` | Type-checks the project, then runs the build tests (`node --test`) |
+| `npm run typecheck` | Type-checks without emitting anything (`tsc --noEmit`) |
+| `npm run build:dev` | Development build: logging enabled, inline source maps, no minification |
 | `npm run lint:firefox` | Validates the Firefox build with `web-ext lint` |
 | `npm run dev:firefox` | Builds, then launches a temporary Firefox profile with the extension loaded |
 | `npm run package` | Builds both targets and zips them into `dist/artifacts/` |
@@ -81,22 +87,43 @@ closes, so this has to be repeated each session.
 
 ```
 src/                  shared extension sources (identical for both browsers)
-  content.js          all the lyrics logic — runs in the page's MAIN world
-  background.js       minimal lifecycle listener
+  content.ts          all the lyrics logic — runs in the page's MAIN world
+  background.ts       minimal lifecycle listener
+  logger.ts           logging that only exists in development builds
+  env.d.ts            build-time constants + YouTube Music page globals
   styles.css          lyrics panel styling
   icons/
 manifest.base.json    manifest fields shared by both browsers
-build.js              merges the base manifest with per-browser overrides
+build.ts              bundles src/ and merges the base manifest with overrides
+tsconfig.json         strict TypeScript config (type-check only; esbuild emits)
 test/                 build + manifest tests
 ```
 
-There is no bundler and no transpilation: `build.js` copies `src/` into
-`dist/<target>/` and writes a target-specific `manifest.json`. The extension
-code is plain ES2020 that both browsers run as-is.
+`build.ts` bundles each entry point (`content.ts`, `background.ts`) into a
+self-contained IIFE with esbuild, copies the static assets, and writes a
+target-specific `manifest.json`. Nothing under `dist/` is edited by hand.
+
+## Development vs production builds
+
+The bundler substitutes a `__DEV__` literal at build time, so the two builds
+differ in what survives:
+
+| | development | production |
+| --- | --- | --- |
+| Logging | enabled (`[YTMS]`, `debug` and up) | removed entirely |
+| Source maps | inline | none |
+| Minification | no | yes |
+
+Because `__DEV__` is a literal, every `log.*` body collapses to dead code in a
+production build and esbuild drops it — plus `console`/`debugger` calls are
+dropped outright. The production console stays clean.
+
+Mode is production unless you ask for otherwise: pass `--dev` (or set
+`NODE_ENV=development`).
 
 ## Why the manifests differ
 
-Only two manifest keys differ between the targets, and `build.js` is the single
+Only two manifest keys differ between the targets, and `build.ts` is the single
 source of truth for both:
 
 - **Background script.** Firefox does not support MV3 service workers, so the
@@ -113,8 +140,9 @@ it there and rebuild.
 ## Debugging
 
 - **Content script logs** appear in the normal page console on
-  music.youtube.com, prefixed with `[YTMS]`. Verbosity is controlled by
-  `LOG_CONFIG.level` at the top of `src/content.js`.
+  music.youtube.com, prefixed with `[YTMS]` — but only in a development build,
+  so use `npm run build:dev` (or `npm run dev:firefox`) when debugging. The
+  verbosity threshold lives in `src/logger.ts`.
 - **Background logs**: in Chrome, click **service worker** on the extension card
   in `chrome://extensions`; in Firefox, click **Inspect** in
   `about:debugging#/runtime/this-firefox`.
