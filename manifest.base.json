@@ -1,7 +1,6 @@
 {
   "manifest_version": 3,
   "name": "YouTube Music Synced Lyrics",
-  "version": "1.0.0",
   "description": "Synced lyrics for YouTube Music",
   "icons": {
     "16": "icons/icon16.png",
@@ -17,10 +16,5 @@
       "world": "MAIN"
     }
   ],
-  "background": {
-    "service_worker": "background.js"
-  },
-  "host_permissions": [
-    "*://music.youtube.com/*"
-  ]
+  "host_permissions": ["*://music.youtube.com/*"]
 }

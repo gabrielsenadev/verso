@@ -5,3 +5,5 @@
 node_modules/
 .idea/
 .vscode/
+dist/
+web-ext-artifacts/

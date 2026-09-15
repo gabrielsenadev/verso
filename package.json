@@ -1,0 +1,19 @@
+{
+  "name": "ytms-lyrics-sync",
+  "version": "1.0.0",
+  "description": "Synced lyrics for YouTube Music (Chrome + Firefox extension)",
+  "private": true,
+  "scripts": {
+    "build": "node build.js",
+    "build:chrome": "node build.js chrome",
+    "build:firefox": "node build.js firefox",
+    "dev:firefox": "npm run build:firefox && web-ext run --source-dir dist/firefox --target firefox-desktop",
+    "lint:firefox": "npm run build:firefox && web-ext lint --source-dir dist/firefox",
+    "package": "npm run build && web-ext build --source-dir dist/chrome --artifacts-dir dist/artifacts --filename ytms-lyrics-sync-chrome-{version}.zip --overwrite-dest && web-ext build --source-dir dist/firefox --artifacts-dir dist/artifacts --filename ytms-lyrics-sync-firefox-{version}.zip --overwrite-dest",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "test": "node --test \"test/**/*.test.js\""
+  },
+  "devDependencies": {
+    "web-ext": "^8.3.0"
+  }
+}
