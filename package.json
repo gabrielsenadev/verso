@@ -1,26 +1,40 @@
 {
   "name": "ytms-lyrics-sync",
   "version": "1.0.0",
-  "description": "Synced lyrics for YouTube Music (Chrome + Firefox extension)",
+  "description": "Synced Lyrics for YouTube Music (Chrome + Firefox extension)",
+  "license": "MIT",
+  "author": "Gabriel Sena",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@10.34.5",
+  "engines": {
+    "node": "26.4.0",
+    "pnpm": "10.34.5"
+  },
   "scripts": {
     "build": "node --disable-warning=ExperimentalWarning build.ts",
-    "build:chrome": "npm run build -- chrome",
-    "build:firefox": "npm run build -- firefox",
-    "build:dev": "npm run build -- --dev",
-    "dev:firefox": "npm run build -- firefox --dev && web-ext run --source-dir dist/firefox --target firefox-desktop",
-    "lint:firefox": "npm run build:firefox && web-ext lint --source-dir dist/firefox",
+    "build:chrome": "pnpm run build chrome",
+    "build:firefox": "pnpm run build firefox",
+    "build:dev": "pnpm run build --dev",
+    "dev:firefox": "pnpm run build firefox --dev && web-ext run --source-dir dist/firefox --target firefox-desktop",
+    "lint:firefox": "pnpm run build:firefox && web-ext lint --source-dir dist/firefox",
     "typecheck": "tsc --noEmit",
-    "package": "npm run build && web-ext build --source-dir dist/chrome --artifacts-dir dist/artifacts --filename ytms-lyrics-sync-chrome-{version}.zip --overwrite-dest && web-ext build --source-dir dist/firefox --artifacts-dir dist/artifacts --filename ytms-lyrics-sync-firefox-{version}.zip --overwrite-dest",
+    "package": "pnpm run build && web-ext build --source-dir dist/chrome --artifacts-dir dist/artifacts --filename ytms-lyrics-sync-chrome-{version}.zip --overwrite-dest && web-ext build --source-dir dist/firefox --artifacts-dir dist/artifacts --filename ytms-lyrics-sync-firefox-{version}.zip --overwrite-dest",
     "clean": "node -e \"import('node:fs').then(({rmSync})=>rmSync('dist',{recursive:true,force:true}))\"",
-    "test": "npm run typecheck && node --disable-warning=ExperimentalWarning --test \"test/**/*.test.ts\""
+    "test": "pnpm run typecheck && node --disable-warning=ExperimentalWarning --test \"test/**/*.test.ts\""
   },
   "devDependencies": {
-    "@types/chrome": "^0.3.0",
-    "@types/node": "^24.13.5",
-    "esbuild": "^0.28.2",
-    "typescript": "^7.0.2",
-    "web-ext": "^8.3.0"
+    "@types/node": "26.6.5",
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2",
+    "web-ext": "10.7.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ],
+    "overrides": {
+      "shell-quote": "1.12.0"
+    }
   }
 }

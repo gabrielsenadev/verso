@@ -1,15 +1,29 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
-import { build, buildManifest, DIST_DIR, SRC_DIR } from '../build.ts';
+import {
+  build as buildInto,
+  buildManifest,
+  SRC_DIR,
+  type BuildOptions,
+} from '../build.ts';
+
+// Build into a scratch directory so running the tests never wipes the
+// `dist/` an unpacked extension may be loaded from.
+const OUT_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'ytms-build-test-'));
+
+function build(target: string, options: BuildOptions = {}): string {
+  return buildInto(target, { outRoot: OUT_ROOT, ...options });
+}
 
 const pkg = JSON.parse(
   fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')
 ) as { version: string };
 
-const BUNDLES = ['content.js', 'background.js'];
+const BUNDLES = ['content.js'];
 const STATIC_FILES = ['styles.css'];
 const ICONS = ['icons/icon16.png', 'icons/icon48.png', 'icons/icon128.png'];
 
@@ -27,7 +41,11 @@ function readSource(file: string): string {
 }
 
 test.after(() => {
-  fs.rmSync(DIST_DIR, { recursive: true, force: true });
+  fs.rmSync(OUT_ROOT, { recursive: true, force: true });
+});
+
+test('tests leave dist/ alone', () => {
+  assert.notEqual(path.dirname(build('chrome')), path.join(import.meta.dirname, '..', 'dist'));
 });
 
 test('unknown target is rejected', () => {
@@ -78,8 +96,33 @@ for (const target of TARGETS) {
     assert.equal(manifest['version'], pkg.version);
     assert.equal(manifest['content_scripts'][0].world, 'MAIN');
     assert.deepEqual(manifest['content_scripts'][0].matches, [
-      '*://music.youtube.com/*',
+      'https://music.youtube.com/*',
     ]);
+  });
+
+  test(`${target}: manifest asks for no permissions beyond the content script`, () => {
+    const manifest = readBuiltManifest(target);
+
+    for (const key of [
+      'permissions',
+      'optional_permissions',
+      'host_permissions',
+      'optional_host_permissions',
+      'background',
+      'web_accessible_resources',
+      'externally_connectable',
+    ]) {
+      assert.equal(manifest[key], undefined, `unexpected ${key}`);
+    }
+  });
+
+  test(`${target}: bundle uses no HTML or code-evaluating sinks`, () => {
+    const bundle = fs.readFileSync(path.join(build(target), 'content.js'), 'utf8');
+
+    assert.doesNotMatch(
+      bundle,
+      /innerHTML|outerHTML|insertAdjacentHTML|document\.write|\beval\(|new Function/
+    );
   });
 
   test(`${target}: the bundler target is not copied into the manifest`, () => {
@@ -146,23 +189,17 @@ test('NODE_ENV=development selects the development build', () => {
   }
 });
 
-test('chrome: background is an MV3 service worker', () => {
+test('chrome: declares the minimum version the bundle targets', () => {
   const manifest = readBuiltManifest('chrome');
 
-  assert.deepEqual(manifest['background'], { service_worker: 'background.js' });
+  // `world: "MAIN"` content scripts landed in Chrome 111.
+  assert.ok(parseInt(manifest['minimum_chrome_version'], 10) >= 111);
   assert.equal(manifest['browser_specific_settings'], undefined);
 });
 
-test('firefox: background is an event page, not a service worker', () => {
-  const manifest = readBuiltManifest('firefox');
-
-  // Firefox has no MV3 service worker support.
-  assert.equal(manifest['background'].service_worker, undefined);
-  assert.deepEqual(manifest['background'].scripts, ['background.js']);
-});
-
 test('firefox: declares an add-on id and a MAIN-world-capable minimum', () => {
-  const { gecko } = readBuiltManifest('firefox')['browser_specific_settings'];
+  const { gecko, gecko_android } =
+    readBuiltManifest('firefox')['browser_specific_settings'];
 
   // MV3 in Firefox requires an explicit id.
   assert.match(gecko.id, /@/);
@@ -171,15 +208,11 @@ test('firefox: declares an add-on id and a MAIN-world-capable minimum', () => {
     parseInt(gecko.strict_min_version, 10) >= 128,
     `strict_min_version ${gecko.strict_min_version} predates MAIN world support`
   );
+  // `data_collection_permissions` needs Firefox 140 / Firefox for Android 142.
+  assert.ok(parseInt(gecko.strict_min_version, 10) >= 140);
+  assert.ok(parseInt(gecko_android.strict_min_version, 10) >= 142);
   // Required by AMO going forward; the extension collects nothing.
   assert.deepEqual(gecko.data_collection_permissions, { required: ['none'] });
-});
-
-test('background script uses no Chrome-only global', () => {
-  const source = readSource('background.ts');
-
-  assert.match(source, /globalThis\.browser \?\? globalThis\.chrome/);
-  assert.doesNotMatch(source, /^\s*chrome\./m);
 });
 
 test('content script uses no extension API, so it runs in the MAIN world', () => {

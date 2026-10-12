@@ -4,17 +4,15 @@
  * Builds one unpacked extension directory per browser target.
  *
  * The TypeScript sources in `src/` are bundled to plain JS with esbuild — one
- * IIFE per entry point, no imports left at runtime, which both MV3 background
- * flavours and a `world: "MAIN"` content script can load as-is.
+ * IIFE per entry point, no imports left at runtime, which a `world: "MAIN"`
+ * content script can load as-is.
  *
- * The sources are identical across targets; only the manifest differs, because
- * Firefox and Chrome disagree on two keys:
+ * The sources are identical across targets; only the manifest differs:
  *
- * - background: Firefox has no MV3 service worker support, so it needs an
- *   event page (`background.scripts`). Chrome needs `service_worker`.
- * - browser_specific_settings: Firefox requires an explicit add-on id under
- *   MV3, plus a minimum version — `world: "MAIN"` content scripts only
- *   landed in Firefox 128.
+ * - Chrome: `minimum_chrome_version`, matching the bundler target.
+ * - Firefox: `browser_specific_settings` — an explicit add-on id (required
+ *   under MV3), the data collection declaration AMO requires, and the
+ *   minimum versions that support it (which also cover `world: "MAIN"`).
  *
  * Build mode decides whether logging survives: `__DEV__` is substituted with a
  * literal, so a production bundle dead-code-eliminates every log call.
@@ -30,37 +28,44 @@ export const SRC_DIR = path.join(ROOT, 'src');
 export const DIST_DIR = path.join(ROOT, 'dist');
 const BASE_MANIFEST = path.join(ROOT, 'manifest.base.json');
 
+const CHROME_MIN_VERSION = '120';
 const FIREFOX_ADDON_ID = 'ytms-lyrics-sync@gabrielsena.dev';
-// `world: "MAIN"` in content_scripts is only supported from Firefox 128.
-const FIREFOX_MIN_VERSION = '128.0';
+// `world: "MAIN"` content scripts need Firefox 128, but the
+// `data_collection_permissions` key AMO requires needs 140 (142 on Android).
+const FIREFOX_MIN_VERSION = '140.0';
+const FIREFOX_ANDROID_MIN_VERSION = '142.0';
 
 /** Entry points bundled for every target, relative to `src/`. */
-const ENTRY_POINTS = ['content.ts', 'background.ts'];
+const ENTRY_POINTS = ['content.ts'];
 
 export type Mode = 'development' | 'production';
 
 export interface BuildOptions {
   mode?: Mode;
+  /** Parent of the per-target directories; defaults to `dist/`. */
+  outRoot?: string;
 }
 
 export const TARGETS = {
   chrome: {
-    background: { service_worker: 'background.js' },
-    // Chrome 120 is comfortably below the MV3 baseline we rely on.
-    esbuildTarget: ['chrome120'],
+    // Comfortably above Chrome 111, where `world: "MAIN"` content scripts landed.
+    minimum_chrome_version: CHROME_MIN_VERSION,
+    esbuildTarget: [`chrome${CHROME_MIN_VERSION}`],
   },
   firefox: {
-    background: { scripts: ['background.js'] },
     browser_specific_settings: {
       gecko: {
         id: FIREFOX_ADDON_ID,
         strict_min_version: FIREFOX_MIN_VERSION,
-        // The extension sends nothing anywhere; lyrics are fetched by the page
-        // itself from YouTube Music's own API.
+        // The extension sends no user data anywhere; lyrics are fetched from
+        // YouTube Music's own API, by the page itself.
         data_collection_permissions: { required: ['none'] },
       },
+      gecko_android: {
+        strict_min_version: FIREFOX_ANDROID_MIN_VERSION,
+      },
     },
-    esbuildTarget: ['firefox128'],
+    esbuildTarget: [`firefox${parseInt(FIREFOX_MIN_VERSION, 10)}`],
   },
 } as const;
 
@@ -111,7 +116,7 @@ export function build(target: string, options: BuildOptions = {}): string {
 
   const mode = resolveMode(options.mode);
   const dev = mode === 'development';
-  const outDir = path.join(DIST_DIR, target);
+  const outDir = path.join(options.outRoot ?? DIST_DIR, target);
 
   fs.rmSync(outDir, { recursive: true, force: true });
   fs.mkdirSync(outDir, { recursive: true });

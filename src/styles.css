@@ -32,6 +32,14 @@
 
 /* ===== Lyric Lines ===== */
 .ytms-lyric-line {
+  /* Reset the native <button> look */
+  display: block;
+  width: 100%;
+  margin: 0;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  text-align: left;
   padding: 8px 0;
   font-size: 22px;
   font-weight: 600;
@@ -46,6 +54,12 @@
   color: rgba(255, 255, 255, 0.65);
 }
 
+.ytms-lyric-line:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.8);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 /* ===== Active Line ===== */
 .ytms-lyric-line.ytms-active {
   color: rgba(255, 255, 255, 1.0);
@@ -58,22 +72,6 @@
   color: rgba(255, 255, 255, 0.35);
 }
 
-/* ===== No Lyrics / Fallback ===== */
-.ytms-no-lyrics {
-  text-align: center;
-  color: rgba(255, 255, 255, 0.5);
-  font-size: 16px;
-  padding: 48px 24px;
-}
-
-.ytms-plain-lyrics {
-  color: rgba(255, 255, 255, 0.8);
-  font-size: 16px;
-  line-height: 1.8;
-  white-space: pre-wrap;
-  padding: 16px 0;
-}
-
 /* ===== Source Attribution ===== */
 .ytms-lyrics-source {
   position: absolute;
@@ -84,10 +82,4 @@
   font-size: 11px;
   color: rgba(255, 255, 255, 0.3);
   pointer-events: none;
-}
-
-/* ===== Fallback mode ===== */
-#ytms-synced-lyrics-container.ytms-fallback-mode .ytms-lyrics-spacer-top,
-#ytms-synced-lyrics-container.ytms-fallback-mode .ytms-lyrics-spacer-bottom {
-  height: 16px;
 }

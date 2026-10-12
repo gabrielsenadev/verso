@@ -10,37 +10,65 @@ const ANDROID_CLIENT = {
 
 const BROWSE_ENDPOINT = '/youtubei/v1/browse?prettyPrint=false';
 
+const LYRICS_PAGE_TYPE = 'MUSIC_PAGE_TYPE_TRACK_LYRICS';
+const LYRICS_BROWSE_ID_PREFIX = 'MPLYt';
+// Only used when the tab data can't be read: YouTube Music lists
+// "Up next", "Lyrics", … in that order.
+const LYRICS_TAB_FALLBACK_INDEX = 1;
+
 const SELECTORS = {
-  video: 'video',
+  video: '#movie_player video',
   moviePlayer: '#movie_player',
   playerPage: 'ytmusic-player-page',
-  tabHeaders: 'ytmusic-player-page .tab-header',
-  lyricsShelf:
-    'ytmusic-description-shelf-renderer[page-type="MUSIC_PAGE_TYPE_TRACK_LYRICS"]',
-  tabContent: '#tab-content',
-  playerBar: 'ytmusic-player-bar',
+  tabs: 'ytmusic-player-page .tab-header',
+  lyricsShelf: `ytmusic-description-shelf-renderer[page-type="${LYRICS_PAGE_TYPE}"]`,
+  anyShelf: 'ytmusic-player-page ytmusic-description-shelf-renderer',
+  tabContent: 'ytmusic-player-page #tab-content',
 } as const;
 
-const SYNC_INTERVAL_MS = 50;
 const CONTAINER_ID = 'ytms-synced-lyrics-container';
+
+/** Coalesces bursts of DOM mutations into one reconcile pass. */
+const RECONCILE_DELAY_MS = 100;
+/**
+ * While the Lyrics tab is open but the page still holds the previous song's
+ * data, retry a few times in case no further mutation arrives to wake us.
+ */
+const STALE_RETRY_DELAY_MS = 500;
+const STALE_RETRY_LIMIT = 10;
 
 // ===== TYPES =====
 
 interface TimedLyricLine {
   text: string;
   startMs: number;
-  endMs: number;
+}
+
+interface TimedLyrics {
+  lines: TimedLyricLine[];
+  /** Attribution as the API returned it, e.g. "Source: Musixmatch". */
+  source: string | null;
+}
+
+interface LyricsTab {
+  element: HTMLElement;
+  /** `null` when the song has no lyrics or the id can't be found. */
+  browseId: string | null;
 }
 
 interface State {
   currentVideoId: string | null;
+  /** Browse id lyrics were (or are being) loaded for. */
   currentBrowseId: string | null;
+  /** The previous song's browse id, which the page keeps for a moment. */
+  staleBrowseId: string | null;
   timedLyrics: TimedLyricLine[] | null;
   activeLine: number;
-  syncTimer: ReturnType<typeof setInterval> | null;
+  syncFrame: number | null;
   lyricsContainer: HTMLElement | null;
   videoElement: HTMLVideoElement | null;
-  fallbackMode: boolean;
+  reconcileTimer: ReturnType<typeof setTimeout> | null;
+  staleRetries: number;
 }
 
 /** Any object reached while walking an untyped InnerTube response. */
@@ -50,24 +78,68 @@ function isRecord(value: unknown): value is UnknownRecord {
   return typeof value === 'object' && value !== null;
 }
 
+/** Subset of the `#movie_player` element API exposed by YouTube's player. */
+interface MoviePlayer extends HTMLElement {
+  getVideoData?: () => { video_id?: string } | undefined;
+  getCurrentTime?: () => number;
+  seekTo?: (seconds: number, allowSeekAhead: boolean) => void;
+}
+
+/** Polymer's `<dom-repeat>`, which stamps the player page tabs. */
+interface DomRepeat extends HTMLElement {
+  itemForElement?: (el: Element) => unknown;
+}
+
 // ===== STATE =====
 
 const state: State = {
   currentVideoId: null,
   currentBrowseId: null,
+  staleBrowseId: null,
   timedLyrics: null,
   activeLine: -1,
-  syncTimer: null,
+  syncFrame: null,
   lyricsContainer: null,
   videoElement: null,
-  fallbackMode: false,
+  reconcileTimer: null,
+  staleRetries: 0,
 };
 
 // ===== UTILS =====
 
+function getMoviePlayer(): MoviePlayer | null {
+  return document.querySelector<MoviePlayer>(SELECTORS.moviePlayer);
+}
+
 function getVideoId(): string | null {
+  // Prefer the player's own state: on autoplay the URL's `?v=` is only updated
+  // after the new video starts loading, so it lags behind `loadstart`.
+  try {
+    const id = getMoviePlayer()?.getVideoData?.()?.video_id;
+    if (id) return id;
+  } catch {
+    // Fall through to the URL
+  }
   const params = new URLSearchParams(window.location.search);
   return params.get('v');
+}
+
+/**
+ * Playback position of the current song in ms. On autoplay YTM can append the
+ * next song to the same media timeline, so `video.currentTime` keeps counting
+ * from the previous song's duration; the player API is relative to the song.
+ */
+function getCurrentSongMs(): number | null {
+  try {
+    const seconds = getMoviePlayer()?.getCurrentTime?.();
+    if (typeof seconds === 'number' && Number.isFinite(seconds)) {
+      return seconds * 1000;
+    }
+  } catch {
+    // Fall through to the media element
+  }
+  const video = state.videoElement;
+  return video ? video.currentTime * 1000 : null;
 }
 
 function getApiKey(): string | null {
@@ -78,21 +150,36 @@ function getApiKey(): string | null {
   }
 }
 
-function findKeyDeep(
+function findObjectWithKey(
   obj: unknown,
   targetKey: string,
   maxDepth = 15
-): unknown {
+): UnknownRecord | null {
   if (!isRecord(obj) || maxDepth <= 0) return null;
-  if (obj[targetKey] !== undefined) return obj[targetKey];
+  if (obj[targetKey] !== undefined) return obj;
   for (const key of Object.keys(obj)) {
-    const result = findKeyDeep(obj[key], targetKey, maxDepth - 1);
+    const result = findObjectWithKey(obj[key], targetKey, maxDepth - 1);
     if (result) return result;
   }
   return null;
 }
 
-function waitForElement(selector: string, timeout = 10000): Promise<Element> {
+/** Reads InnerTube text, which is a plain string, `{ content }` or `{ runs }`. */
+function readText(value: unknown): string | null {
+  if (typeof value === 'string') return value.trim() || null;
+  if (!isRecord(value)) return null;
+  if (typeof value['content'] === 'string') return readText(value['content']);
+  if (!Array.isArray(value['runs'])) return null;
+  const text = value['runs']
+    .map((run: unknown) =>
+      isRecord(run) && typeof run['text'] === 'string' ? run['text'] : ''
+    )
+    .join('');
+  return text.trim() || null;
+}
+
+/** Resolves once `selector` matches; rejects after `timeout` ms if given. */
+function waitForElement(selector: string, timeout?: number): Promise<Element> {
   return new Promise((resolve, reject) => {
     const el = document.querySelector(selector);
     if (el) return resolve(el);
@@ -101,82 +188,99 @@ function waitForElement(selector: string, timeout = 10000): Promise<Element> {
       const found = document.querySelector(selector);
       if (found) {
         obs.disconnect();
+        if (timer !== undefined) clearTimeout(timer);
         resolve(found);
       }
     });
     observer.observe(document.body, { childList: true, subtree: true });
 
-    setTimeout(() => {
-      observer.disconnect();
-      reject(new Error(`Timeout waiting for ${selector}`));
-    }, timeout);
+    const timer =
+      timeout === undefined
+        ? undefined
+        : setTimeout(() => {
+            observer.disconnect();
+            reject(new Error(`Timeout waiting for ${selector}`));
+          }, timeout);
   });
 }
 
-// ===== API MODULE =====
+// ===== LYRICS TAB =====
 
-function findBrowseIdInObject(
-  obj: unknown,
-  depth = 0,
-  visited: WeakSet<object> | null = null
-): string | null {
-  if (!visited) visited = new WeakSet();
-  if (!isRecord(obj) || depth > 12) return null;
+/**
+ * Reads the InnerTube `tabRenderer` behind a tab header. The headers are
+ * stamped by a `<dom-repeat>` over the watch-next response's tabs, so Polymer
+ * can map each element back to its data item; some builds also bind it on the
+ * element itself.
+ */
+function getTabRenderer(tab: Element): UnknownRecord | null {
+  const candidates: unknown[] = [];
   try {
-    if (visited.has(obj)) return null;
-    visited.add(obj);
+    const repeat = tab.parentElement?.querySelector<DomRepeat>(':scope > dom-repeat');
+    candidates.push(repeat?.itemForElement?.(tab));
   } catch {
-    return null;
+    // Not a Polymer dom-repeat
   }
-
-  if (typeof obj['browseId'] === 'string' && obj['browseId'].startsWith('MPLYt')) {
-    return obj['browseId'];
-  }
-
-  try {
-    for (const key of Object.keys(obj)) {
-      try {
-        const val = obj[key];
-        if (val && typeof val === 'object') {
-          const result = findBrowseIdInObject(val, depth + 1, visited);
-          if (result) return result;
-        }
-      } catch {
-        continue;
-      }
-    }
-  } catch {
-    // Object.keys may throw on some exotic objects
-  }
-  return null;
-}
-
-function getLyricsBrowseId(): string | null {
-  const playerPage = document.querySelector('ytmusic-player-page');
-  if (!playerPage) return null;
-
-  // Check the player page element itself
-  for (const prop of ['data', '__data', 'playerPageData_']) {
+  for (const prop of ['data', '__data']) {
     try {
-      const result = findBrowseIdInObject(
-        (playerPage as unknown as UnknownRecord)[prop]
-      );
-      if (result) return result;
+      candidates.push((tab as unknown as UnknownRecord)[prop]);
     } catch {
       continue;
     }
   }
 
-  // Scan child elements
-  const elements = playerPage.querySelectorAll('*');
-  for (const el of elements) {
-    for (const prop of ['data', '__data']) {
+  for (const item of candidates) {
+    if (!isRecord(item)) continue;
+    return isRecord(item['tabRenderer']) ? item['tabRenderer'] : item;
+  }
+  return null;
+}
+
+/**
+ * Finds the Lyrics tab by the lyrics browse id in its data rather than by its
+ * label, which is localized ("Lyrics", "Letra", …), or its position, which
+ * shifts when YouTube Music adds tabs such as "Comments".
+ */
+function findLyricsTab(): LyricsTab | null {
+  const tabs = [...document.querySelectorAll<HTMLElement>(SELECTORS.tabs)];
+
+  for (const element of tabs) {
+    const tabRenderer = getTabRenderer(element);
+    if (!tabRenderer) continue;
+
+    // Only the endpoint: a tab's `content` can hold a whole queue of songs.
+    const browseId = findBrowseIdInObject(tabRenderer['endpoint']);
+    if (!browseId) continue;
+
+    // Songs without lyrics keep the tab, marked unselectable.
+    const hasLyrics = tabRenderer['unselectable'] !== true;
+    return { element, browseId: hasLyrics ? browseId : null };
+  }
+
+  // Tab data unreadable: fall back to the usual position and a page-wide scan.
+  const element = tabs[LYRICS_TAB_FALLBACK_INDEX];
+  return element ? { element, browseId: findBrowseIdInPage() } : null;
+}
+
+function isTabSelected(tab: Element): boolean {
+  return (
+    tab.getAttribute('aria-selected') === 'true' ||
+    tab.classList.contains('iron-selected')
+  );
+}
+
+/** Last resort when the tab data can't be read: scan the player page's data. */
+function findBrowseIdInPage(): string | null {
+  const playerPage = document.querySelector(SELECTORS.playerPage);
+  if (!playerPage) return null;
+
+  const candidates: Element[] = [playerPage, ...playerPage.querySelectorAll('*')];
+  for (const el of candidates) {
+    for (const prop of ['data', '__data', 'playerPageData_']) {
       try {
-        const value = (el as unknown as UnknownRecord)[prop];
-        if (value && typeof value === 'object') {
-          const result = findBrowseIdInObject(value);
-          if (result) return result;
-        }
+        const result = findBrowseIdInObject(
+          (el as unknown as UnknownRecord)[prop]
+        );
+        if (result) return result;
       } catch {
         continue;
       }
@@ -185,14 +289,49 @@ function getLyricsBrowseId(): string | null {
   return null;
 }
 
-async function fetchTimedLyrics(
-  browseId: string
-): Promise<TimedLyricLine[] | null> {
+function findBrowseIdInObject(
+  obj: unknown,
+  depth = 0,
+  visited: WeakSet<object> = new WeakSet()
+): string | null {
+  if (!isRecord(obj) || depth > 12) return null;
+  try {
+    if (visited.has(obj)) return null;
+    visited.add(obj);
+
+    const browseId = obj['browseId'];
+    if (
+      typeof browseId === 'string' &&
+      browseId.startsWith(LYRICS_BROWSE_ID_PREFIX)
+    ) {
+      return browseId;
+    }
+
+    for (const key of Object.keys(obj)) {
+      try {
+        const result = findBrowseIdInObject(obj[key], depth + 1, visited);
+        if (result) return result;
+      } catch {
+        continue;
+      }
+    }
+  } catch {
+    // Exotic objects may throw on property access or Object.keys
+  }
+  return null;
+}
+
+// ===== API MODULE =====
+
+async function fetchTimedLyrics(browseId: string): Promise<TimedLyrics | null> {
   const apiKey = getApiKey();
-  const url = `https://music.youtube.com${BROWSE_ENDPOINT}${apiKey ? '&key=' + apiKey : ''}`;
+  const url = `https://music.youtube.com${BROWSE_ENDPOINT}${apiKey ? '&key=' + encodeURIComponent(apiKey) : ''}`;
 
   const response = await fetch(url, {
     method: 'POST',
+    // Requests without the page's session cookies get "Lyrics not available"
+    // back, so `omit` is not an option here.
+    credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       context: {
@@ -202,7 +341,7 @@ async function fetchTimedLyrics(
           gl: window.ytcfg?.data_?.INNERTUBE_CONTEXT_GL || 'US',
         },
       },
-      browseId: browseId,
+      browseId,
     }),
   });
 
@@ -214,27 +353,28 @@ async function fetchTimedLyrics(
   return parseTimedLyrics(data);
 }
 
-function parseTimedLyrics(responseData: unknown): TimedLyricLine[] | null {
-  const timedData = findKeyDeep(responseData, 'timedLyricsData');
-  if (!Array.isArray(timedData)) {
+function parseTimedLyrics(responseData: unknown): TimedLyrics | null {
+  const lyricsData = findObjectWithKey(responseData, 'timedLyricsData');
+  const timedData = lyricsData?.['timedLyricsData'];
+  if (!lyricsData || !Array.isArray(timedData)) {
     return null;
   }
 
-  return timedData.map((entry: UnknownRecord) => {
+  const lines = timedData.filter(isRecord).map((entry) => {
     const cueRange = isRecord(entry['cueRange']) ? entry['cueRange'] : {};
     return {
       text: typeof entry['lyricLine'] === 'string' ? entry['lyricLine'] : '',
-      startMs: parseInt(String(cueRange['startTimeMilliseconds'] ?? '0'), 10),
-      endMs: parseInt(String(cueRange['endTimeMilliseconds'] ?? '0'), 10),
+      startMs:
+        parseInt(String(cueRange['startTimeMilliseconds'] ?? '0'), 10) || 0,
     };
   });
+
+  return { lines, source: readText(lyricsData['sourceMessage']) };
 }
 
 // ===== DOM MODULE =====
 
-function createLyricsContainer(): HTMLElement {
-  destroyLyricsContainer();
-
+function createLyricsContainer(lyrics: TimedLyrics): HTMLElement {
   const container = document.createElement('div');
   container.id = CONTAINER_ID;
 
@@ -246,124 +386,67 @@ function createLyricsContainer(): HTMLElement {
 
   const linesWrapper = document.createElement('div');
   linesWrapper.className = 'ytms-lyrics-lines';
+  linesWrapper.addEventListener('click', (e) => {
+    if (!(e.target instanceof Element)) return;
+    const line = e.target.closest<HTMLElement>('.ytms-lyric-line');
+    const startMs = state.timedLyrics?.[Number(line?.dataset['index'])]?.startMs;
+    if (startMs !== undefined) seekTo(startMs);
+  });
+
+  lyrics.lines.forEach((line, index) => {
+    // A native button is focusable and activated by Enter/Space on its own.
+    const lineEl = document.createElement('button');
+    lineEl.type = 'button';
+    lineEl.className = 'ytms-lyric-line';
+    lineEl.dataset['index'] = String(index);
+    lineEl.textContent = line.text || '♪';
+    linesWrapper.appendChild(lineEl);
+  });
 
   const spacerBottom = document.createElement('div');
   spacerBottom.className = 'ytms-lyrics-spacer-bottom';
 
-  scrollWrapper.appendChild(spacerTop);
-  scrollWrapper.appendChild(linesWrapper);
-  scrollWrapper.appendChild(spacerBottom);
-
-  const source = document.createElement('div');
-  source.className = 'ytms-lyrics-source';
-  source.textContent = 'Source: Musixmatch';
-
+  scrollWrapper.append(spacerTop, linesWrapper, spacerBottom);
   container.appendChild(scrollWrapper);
-  container.appendChild(source);
+
+  if (lyrics.source) {
+    const source = document.createElement('div');
+    source.className = 'ytms-lyrics-source';
+    source.textContent = lyrics.source;
+    container.appendChild(source);
+  }
 
   return container;
 }
 
-function injectContainer(container: HTMLElement | null): void {
-  if (!container) return;
-
-  // Try multiple injection targets
-  const targets = [
-    document.querySelector('#tab-content'),
-    document.querySelector('ytmusic-player-page #tab-content'),
-    document.querySelector(
-      'ytmusic-description-shelf-renderer[page-type="MUSIC_PAGE_TYPE_TRACK_LYRICS"]'
-    )?.parentElement,
-    document.querySelector('ytmusic-description-shelf-renderer')?.parentElement,
-  ];
-
-  const target = targets.find((t): t is Element => Boolean(t));
-  log.debug('Injection target:', target?.tagName, target?.id, target?.className);
+function injectContainer(container: HTMLElement): void {
+  // Sit exactly where YouTube Music renders its own lyrics
+  const nativeShelf =
+    document.querySelector<HTMLElement>(SELECTORS.lyricsShelf) ??
+    document.querySelector<HTMLElement>(SELECTORS.anyShelf);
+  const target =
+    nativeShelf?.parentElement ?? document.querySelector(SELECTORS.tabContent);
 
   if (!target) {
     log.warn('No injection target found');
     return;
   }
+  log.debug('Injection target:', target.tagName, target.id, target.className);
 
-  const originalShelf = target.querySelector<HTMLElement>(
-    'ytmusic-description-shelf-renderer'
-  );
-  if (originalShelf) {
-    originalShelf.style.display = 'none';
-  }
+  // Hide YouTube Music's own (unsynced) lyrics while ours are shown
+  if (nativeShelf) nativeShelf.style.display = 'none';
   target.prepend(container);
 }
 
-function renderLyricsLines(
-  lyrics: TimedLyricLine[],
-  container: HTMLElement
-): void {
-  const linesWrapper = container.querySelector('.ytms-lyrics-lines');
-  if (!linesWrapper) return;
-  linesWrapper.replaceChildren();
-
-  lyrics.forEach((line, index) => {
-    const lineEl = document.createElement('div');
-    lineEl.classList.add('ytms-lyric-line');
-    lineEl.dataset['index'] = String(index);
-    lineEl.dataset['startMs'] = String(line.startMs);
-    lineEl.textContent = line.text || '♪';
-
-    lineEl.addEventListener('click', () => {
-      seekToLine(line.startMs);
-    });
-
-    linesWrapper.appendChild(lineEl);
-  });
-}
-
-function renderFallbackLyrics(plainText: string, container: HTMLElement): void {
-  const linesWrapper = container.querySelector('.ytms-lyrics-lines');
-  if (!linesWrapper) return;
-  linesWrapper.replaceChildren();
-  container.classList.add('ytms-fallback-mode');
-
-  const textEl = document.createElement('div');
-  textEl.classList.add('ytms-plain-lyrics');
-  textEl.textContent = plainText;
-  linesWrapper.appendChild(textEl);
-}
-
 function destroyLyricsContainer(): void {
-  const existing = document.getElementById(CONTAINER_ID);
-  if (existing) existing.remove();
+  document.getElementById(CONTAINER_ID)?.remove();
 
-  const originalShelf = document.querySelector<HTMLElement>(
-    'ytmusic-description-shelf-renderer[style*="display: none"]'
-  );
-  if (originalShelf) {
-    originalShelf.style.display = '';
+  for (const shelf of document.querySelectorAll<HTMLElement>(SELECTORS.anyShelf)) {
+    shelf.style.removeProperty('display');
   }
 }
 
 // ===== SYNC MODULE =====
-
-function startSyncLoop(): void {
-  stopSyncLoop();
-
-  const video = document.querySelector<HTMLVideoElement>(SELECTORS.video);
-  if (!video) return;
-  state.videoElement = video;
-
-  state.syncTimer = setInterval(() => {
-    if (!state.timedLyrics || !state.lyricsContainer) return;
-    if (video.paused) return;
-
-    const currentMs = video.currentTime * 1000;
-    const newActiveLine = findActiveLine(currentMs);
-
-    if (newActiveLine !== state.activeLine) {
-      state.activeLine = newActiveLine;
-      updateActiveLineDOM(newActiveLine);
-      scrollToActiveLine(newActiveLine);
-    }
-  }, SYNC_INTERVAL_MS);
-}
 
 function findActiveLine(currentMs: number): number {
   const lyrics = state.timedLyrics;
@@ -378,6 +461,26 @@ function findActiveLine(currentMs: number): number {
   return -1;
 }
 
+/**
+ * Highlights the line for the current playback position. Only touches the DOM
+ * when the line changed, unless `force` (fresh container, scroll position
+ * possibly left over from the previous song).
+ */
+function syncActiveLine(force = false): void {
+  if (!state.timedLyrics || !state.lyricsContainer?.isConnected) return;
+
+  const currentMs = getCurrentSongMs();
+  if (currentMs === null) return;
+
+  const newActiveLine = findActiveLine(currentMs);
+  if (!force && newActiveLine === state.activeLine) return;
+
+  log.debug('Active line', newActiveLine, '| song ms', Math.round(currentMs));
+  state.activeLine = newActiveLine;
+  updateActiveLineDOM(newActiveLine);
+  scrollToActiveLine(newActiveLine, force ? 'instant' : 'smooth');
+}
+
 function updateActiveLineDOM(activeIndex: number): void {
   const container = state.lyricsContainer;
   if (!container) return;
@@ -386,224 +489,214 @@ function updateActiveLineDOM(activeIndex: number): void {
   lines.forEach((line, i) => {
     line.classList.toggle('ytms-active', i === activeIndex);
     line.classList.toggle('ytms-past', i < activeIndex);
+    if (i === activeIndex) line.setAttribute('aria-current', 'true');
+    else line.removeAttribute('aria-current');
   });
 }
 
-function scrollToActiveLine(activeIndex: number): void {
+function scrollToActiveLine(
+  activeIndex: number,
+  behavior: ScrollBehavior = 'smooth'
+): void {
   const container = state.lyricsContainer;
-  if (!container || activeIndex < 0) return;
+  if (!container) return;
 
-  const scrollWrapper = container.querySelector('.ytms-lyrics-scroll-wrapper');
+  // Before the first lyric starts, keep the first line in view
   const activeLine = container.querySelector<HTMLElement>(
-    `.ytms-lyric-line[data-index="${activeIndex}"]`
+    `.ytms-lyric-line[data-index="${Math.max(activeIndex, 0)}"]`
   );
-  if (!activeLine || !scrollWrapper) return;
+  if (!activeLine) return;
 
-  const wrapperHeight = scrollWrapper.clientHeight;
-  const lineTop = activeLine.offsetTop;
-  const lineHeight = activeLine.offsetHeight;
-  const targetScroll = lineTop - wrapperHeight / 2 + lineHeight / 2;
+  // Our wrapper only scrolls if its parent has a fixed height; in YTM's tab
+  // layout it usually grows with its content and an ancestor scrolls instead.
+  const scroller = getScrollParent(activeLine);
+  if (!scroller) return;
 
-  scrollWrapper.scrollTo({
-    top: targetScroll,
-    behavior: 'smooth',
+  const scrollerRect = scroller.getBoundingClientRect();
+  const lineRect = activeLine.getBoundingClientRect();
+  const offset =
+    lineRect.top - scrollerRect.top - scroller.clientHeight / 2 + lineRect.height / 2;
+
+  scroller.scrollTo({
+    top: scroller.scrollTop + offset,
+    behavior,
   });
 }
 
-function seekToLine(timeMs: number): void {
-  const video =
-    state.videoElement ||
-    document.querySelector<HTMLVideoElement>(SELECTORS.video);
-  if (video) {
-    video.currentTime = timeMs / 1000;
-  }
-}
-
-function stopSyncLoop(): void {
-  if (state.syncTimer) {
-    clearInterval(state.syncTimer);
-    state.syncTimer = null;
-  }
-}
-
-// ===== NAVIGATION MODULE =====
-
-function resetSongState(newVideoId: string | null): void {
-  stopSyncLoop();
-  destroyLyricsContainer();
-  state.currentVideoId = newVideoId;
-  state.timedLyrics = null;
-  state.currentBrowseId = null;
-  state.activeLine = -1;
-  state.fallbackMode = false;
-  state.lyricsContainer = null;
-}
-
-function isLyricsTabActive(): boolean {
-  const tabs = document.querySelectorAll('ytmusic-player-page .tab-header');
-  for (const tab of tabs) {
-    if (tab.textContent?.trim().toLowerCase() !== 'lyrics') continue;
-    return (
-      tab.classList.contains('iron-selected') ||
-      tab.getAttribute('aria-selected') === 'true' ||
-      tab.hasAttribute('selected')
-    );
-  }
-  return false;
-}
-
-function observeSongChanges(): void {
-  const video = document.querySelector<HTMLVideoElement>(SELECTORS.video);
-  if (!video) return;
-  state.videoElement = video;
-
-  video.addEventListener('loadstart', () => {
-    const videoId = getVideoId();
-    if (!videoId || videoId === state.currentVideoId) return;
-
-    log.info('Song change detected via loadstart:', videoId);
-    resetSongState(videoId);
-
-    if (isLyricsTabActive()) {
-      log.debug('Lyrics tab active — reloading lyrics');
-      setTimeout(() => loadLyricsForCurrentSong(), 500);
+function getScrollParent(el: HTMLElement): HTMLElement | null {
+  let node = el.parentElement;
+  while (node && node !== document.body) {
+    const { overflowY } = getComputedStyle(node);
+    if (
+      (overflowY === 'auto' || overflowY === 'scroll') &&
+      node.scrollHeight > node.clientHeight
+    ) {
+      return node;
     }
-  });
-}
-
-function observeLyricsTab(): void {
-  const playerPage = document.querySelector(SELECTORS.playerPage);
-  if (!playerPage) return;
-
-  playerPage.addEventListener('click', (e) => {
-    const target = e.target;
-    if (!(target instanceof Element)) return;
-    const tab = target.closest('.tab-header');
-    if (!tab) return;
-    if (tab.textContent?.trim().toLowerCase() !== 'lyrics') return;
-
-    log.debug('Lyrics tab clicked');
-    const videoId = getVideoId();
-    if (!videoId) return;
-
-    // New song OR never loaded yet — reset and fetch fresh
-    if (videoId !== state.currentVideoId || !state.timedLyrics) {
-      log.info('Loading lyrics on tab click for:', videoId);
-      resetSongState(videoId);
-      setTimeout(() => loadLyricsForCurrentSong(), 500);
-      return;
-    }
-
-    // Same song, already loaded — re-inject if container was removed (tab switch)
-    if (!document.getElementById(CONTAINER_ID)) {
-      setTimeout(() => {
-        injectContainer(state.lyricsContainer);
-        startSyncLoop();
-      }, 500);
-    }
-  });
-}
-
-async function loadLyricsForCurrentSong(): Promise<void> {
-  log.info('Loading lyrics for:', state.currentVideoId);
-
-  const browseId = await waitForBrowseId();
-  if (!browseId) {
-    log.info('No browse ID found');
-    showNoLyricsState();
-    return;
-  }
-
-  if (getVideoId() !== state.currentVideoId) return;
-
-  state.currentBrowseId = browseId;
-  log.debug('Browse ID:', browseId);
-
-  try {
-    log.debug('Fetching timed lyrics...');
-    const timedLyrics = await fetchTimedLyrics(browseId);
-
-    if (getVideoId() !== state.currentVideoId) return;
-
-    log.info(
-      'Timed lyrics result:',
-      timedLyrics ? timedLyrics.length + ' lines' : 'null'
-    );
-
-    if (timedLyrics && timedLyrics.length > 0) {
-      state.timedLyrics = timedLyrics;
-      state.fallbackMode = false;
-
-      const container = createLyricsContainer();
-      renderLyricsLines(timedLyrics, container);
-      log.debug('Injecting container into DOM...');
-      injectContainer(container);
-      state.lyricsContainer = container;
-
-      log.debug('Container injected:', !!document.getElementById(CONTAINER_ID));
-      log.debug('Starting sync loop');
-      startSyncLoop();
-    } else {
-      log.info('No timed lyrics, showing fallback');
-      showFallbackLyrics();
-    }
-  } catch (err) {
-    log.error('Failed to fetch lyrics:', err);
-    showFallbackLyrics();
-  }
-}
-
-async function waitForBrowseId(maxAttempts = 10, intervalMs = 500) {
-  for (let i = 0; i < maxAttempts; i++) {
-    const browseId = getLyricsBrowseId();
-    if (browseId) return browseId;
-    await new Promise((r) => setTimeout(r, intervalMs));
+    node = node.parentElement;
   }
   return null;
 }
 
-function showFallbackLyrics(): void {
-  const shelf = document.querySelector(SELECTORS.lyricsShelf);
-  const desc = shelf?.querySelector('.description');
-  const text = desc?.textContent?.trim();
-  if (text) {
-    state.fallbackMode = true;
-    const container = createLyricsContainer();
-    renderFallbackLyrics(text, container);
-    injectContainer(container);
-    state.lyricsContainer = container;
-  } else {
-    showNoLyricsState();
+function seekTo(timeMs: number): void {
+  // Seek through the player API: like `getCurrentTime`, it is relative to the
+  // current song, while the media element's timeline may span several songs.
+  const player = getMoviePlayer();
+  if (player?.seekTo) {
+    player.seekTo(timeMs / 1000, true);
+  } else if (state.videoElement) {
+    state.videoElement.currentTime = timeMs / 1000;
+  }
+  syncActiveLine();
+}
+
+/** Follows playback every frame while playing; media events cover the rest. */
+function startSyncLoop(): void {
+  if (state.syncFrame !== null) return;
+  const tick = () => {
+    syncActiveLine();
+    state.syncFrame = requestAnimationFrame(tick);
+  };
+  state.syncFrame = requestAnimationFrame(tick);
+}
+
+function stopSyncLoop(): void {
+  if (state.syncFrame !== null) {
+    cancelAnimationFrame(state.syncFrame);
+    state.syncFrame = null;
   }
 }
 
-function showNoLyricsState(): void {
-  const container = createLyricsContainer();
-  const linesWrapper = container.querySelector('.ytms-lyrics-lines');
-  const msg = document.createElement('div');
-  msg.className = 'ytms-no-lyrics';
-  msg.textContent = 'No lyrics available for this song';
-  linesWrapper?.appendChild(msg);
-  injectContainer(container);
-  state.lyricsContainer = container;
+function bindVideo(video: HTMLVideoElement): void {
+  if (state.videoElement === video) return;
+  state.videoElement = video;
+
+  const onSourceChange = () => scheduleReconcile();
+  video.addEventListener('loadstart', onSourceChange);
+  video.addEventListener('loadeddata', onSourceChange);
+
+  video.addEventListener('playing', startSyncLoop);
+  video.addEventListener('pause', stopSyncLoop);
+  video.addEventListener('ended', stopSyncLoop);
+  // Seeks from anywhere (lyrics, player bar, keyboard) and background tabs,
+  // where animation frames don't run.
+  const onTimeChange = () => syncActiveLine();
+  video.addEventListener('seeked', onTimeChange);
+  video.addEventListener('timeupdate', onTimeChange);
+
+  if (!video.paused) startSyncLoop();
+}
+
+// ===== LIFECYCLE =====
+
+function resetSongState(newVideoId: string | null): void {
+  destroyLyricsContainer();
+  if (state.currentBrowseId) state.staleBrowseId = state.currentBrowseId;
+  state.currentVideoId = newVideoId;
+  state.currentBrowseId = null;
+  state.timedLyrics = null;
+  state.activeLine = -1;
+  state.lyricsContainer = null;
+  state.staleRetries = 0;
+}
+
+function scheduleReconcile(delayMs = RECONCILE_DELAY_MS): void {
+  if (state.reconcileTimer !== null) return;
+  state.reconcileTimer = setTimeout(() => {
+    state.reconcileTimer = null;
+    reconcile();
+  }, delayMs);
+}
+
+/**
+ * Brings our UI in line with the page. Runs whenever the player page mutates
+ * or the media element loads a new source; safe to run any number of times.
+ */
+function reconcile(): void {
+  const video = document.querySelector<HTMLVideoElement>(SELECTORS.video);
+  if (video) bindVideo(video);
+
+  const videoId = getVideoId();
+  if (videoId && videoId !== state.currentVideoId) {
+    log.info('Song change detected:', videoId);
+    resetSongState(videoId);
+  }
+
+  const lyricsTab = findLyricsTab();
+  if (!lyricsTab || !isTabSelected(lyricsTab.element)) return;
+
+  const { browseId } = lyricsTab;
+  if (!browseId || browseId === state.staleBrowseId) {
+    // No lyrics, or the page hasn't caught up with the new song yet
+    if (state.staleRetries < STALE_RETRY_LIMIT) {
+      state.staleRetries++;
+      scheduleReconcile(STALE_RETRY_DELAY_MS);
+    }
+    return;
+  }
+
+  if (browseId !== state.currentBrowseId) {
+    void loadLyrics(browseId);
+    return;
+  }
+
+  // Same lyrics, but switching tabs may have removed our container
+  if (state.lyricsContainer && !state.lyricsContainer.isConnected) {
+    injectContainer(state.lyricsContainer);
+    syncActiveLine(true);
+  }
+}
+
+async function loadLyrics(browseId: string): Promise<void> {
+  const videoId = state.currentVideoId;
+  // Claimed up front so concurrent reconciles don't fetch the same lyrics
+  state.currentBrowseId = browseId;
+  log.info('Loading lyrics for:', videoId, browseId);
+
+  let lyrics: TimedLyrics | null;
+  try {
+    lyrics = await fetchTimedLyrics(browseId);
+  } catch (err) {
+    log.error('Failed to fetch lyrics:', err);
+    return;
+  }
+
+  if (state.currentVideoId !== videoId || state.currentBrowseId !== browseId) {
+    return;
+  }
+
+  if (!lyrics || lyrics.lines.length === 0) {
+    // Leave YouTube Music's own lyrics (or its "not available" message) as is
+    log.info('No timed lyrics for this song');
+    return;
+  }
+
+  log.info('Timed lyrics:', lyrics.lines.length, 'lines');
+  destroyLyricsContainer();
+  state.timedLyrics = lyrics.lines;
+  state.lyricsContainer = createLyricsContainer(lyrics);
+  injectContainer(state.lyricsContainer);
+  syncActiveLine(true);
 }
 
 // ===== INIT =====
 
 function init(): void {
-  if (!window.location.hostname.includes('music.youtube.com')) return;
-
   log.info('Initializing...');
 
+  // No timeout: the player page may only be created once the user opens the
+  // player, possibly long after landing on the home page.
   waitForElement(SELECTORS.playerPage)
-    .then(async () => {
-      observeLyricsTab();
-      try {
-        await waitForElement(SELECTORS.video, 5000);
-        observeSongChanges();
-      } catch (err) {
-        log.warn('Video element not found:', err);
-      }
+    .then((playerPage) => {
+      // Tab switches, song changes and YTM rendering its own lyrics all show
+      // up as mutations inside the player page.
+      new MutationObserver(() => scheduleReconcile()).observe(playerPage, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['aria-selected'],
+      });
+      scheduleReconcile();
     })
     .catch((err: unknown) => {
       log.warn('Player page not found:', err);
