@@ -1,6 +1,10 @@
+<p align="center">
+  <img alt="Verso showing synced lyrics in YouTube Music" src="screen-verso.png" width="720" />
+</p>
+
 <h1 align="center">Welcome to Verso 👋</h1>
 <p>
-  <img alt="Version" src="https://img.shields.io/badge/version-1.0.0-blue.svg?cacheSeconds=2592000" />
+  <img alt="Version" src="https://img.shields.io/badge/version-1.0.1-blue.svg?cacheSeconds=2592000" />
   <img alt="Chrome" src="https://img.shields.io/badge/chrome-%3E%3D120-blue.svg" />
   <img alt="Firefox" src="https://img.shields.io/badge/firefox-%3E%3D140-blue.svg" />
   <a href="#" target="_blank">
@@ -12,8 +16,6 @@
 </p>
 
 > Karaoke-style, time-synced lyrics in the YouTube Music lyrics tab. The current line is highlighted as the song plays, the list auto-scrolls, and clicking a line seeks to it.
-
-<!-- ![Example UI](example-ui.png) -->
 
 ### 🏠 [Homepage](https://github.com/gabrielsenadev/verso)
 

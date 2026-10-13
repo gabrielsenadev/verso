@@ -202,7 +202,7 @@ test('firefox: declares an add-on id and a MAIN-world-capable minimum', () => {
     readBuiltManifest('firefox')['browser_specific_settings'];
 
   // MV3 in Firefox requires an explicit id.
-  assert.match(gecko.id, /@/);
+  assert.match(gecko.id, /^(\{[0-9a-f-]{36}\}|[^@\s]*@[^@\s]+)$/i);
   // `world: "MAIN"` content scripts landed in Firefox 128.
   assert.ok(
     parseInt(gecko.strict_min_version, 10) >= 128,

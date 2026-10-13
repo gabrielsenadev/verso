@@ -69,6 +69,9 @@ interface State {
   videoElement: HTMLVideoElement | null;
   reconcileTimer: ReturnType<typeof setTimeout> | null;
   staleRetries: number;
+  lyricsTabElement: HTMLElement | null;
+  /** Whether the Lyrics tab was selected on the last reconcile. */
+  lyricsTabOpen: boolean;
 }
 
 /** Any object reached while walking an untyped InnerTube response. */
@@ -103,6 +106,8 @@ const state: State = {
   videoElement: null,
   reconcileTimer: null,
   staleRetries: 0,
+  lyricsTabElement: null,
+  lyricsTabOpen: false,
 };
 
 // ===== UTILS =====
@@ -259,6 +264,16 @@ function findLyricsTab(): LyricsTab | null {
   // Tab data unreadable: fall back to the usual position and a page-wide scan.
   const element = tabs[LYRICS_TAB_FALLBACK_INDEX];
   return element ? { element, browseId: findBrowseIdInPage() } : null;
+}
+
+/**
+ * Read live rather than from the last reconcile: our container stays in the
+ * page after switching tabs, and its scroll parent is shared with the other
+ * tabs (e.g. the "Up next" queue), so scrolling there would move their list.
+ */
+function isLyricsTabOpen(): boolean {
+  const tab = state.lyricsTabElement;
+  return !!tab?.isConnected && isTabSelected(tab);
 }
 
 function isTabSelected(tab: Element): boolean {
@@ -499,7 +514,7 @@ function scrollToActiveLine(
   behavior: ScrollBehavior = 'smooth'
 ): void {
   const container = state.lyricsContainer;
-  if (!container) return;
+  if (!container || !isLyricsTabOpen()) return;
 
   // Before the first lyric starts, keep the first line in view
   const activeLine = container.querySelector<HTMLElement>(
@@ -623,7 +638,10 @@ function reconcile(): void {
   }
 
   const lyricsTab = findLyricsTab();
-  if (!lyricsTab || !isTabSelected(lyricsTab.element)) return;
+  state.lyricsTabElement = lyricsTab?.element ?? null;
+  const wasOpen = state.lyricsTabOpen;
+  state.lyricsTabOpen = !!lyricsTab && isTabSelected(lyricsTab.element);
+  if (!lyricsTab || !state.lyricsTabOpen) return;
 
   const { browseId } = lyricsTab;
   if (!browseId || browseId === state.staleBrowseId) {
@@ -643,6 +661,9 @@ function reconcile(): void {
   // Same lyrics, but switching tabs may have removed our container
   if (state.lyricsContainer && !state.lyricsContainer.isConnected) {
     injectContainer(state.lyricsContainer);
+    syncActiveLine(true);
+  } else if (!wasOpen) {
+    // Scrolling was paused while another tab was open
     syncActiveLine(true);
   }
 }

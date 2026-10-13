@@ -29,7 +29,7 @@ export const DIST_DIR = path.join(ROOT, 'dist');
 const BASE_MANIFEST = path.join(ROOT, 'manifest.base.json');
 
 const CHROME_MIN_VERSION = '120';
-const FIREFOX_ADDON_ID = 'contact@gabrielsena.dev';
+const FIREFOX_ADDON_ID = '{13aff5ed-e42f-4683-a3b9-69da6db48ed6}';
 // `world: "MAIN"` content scripts need Firefox 128, but the
 // `data_collection_permissions` key AMO requires needs 140 (142 on Android).
 const FIREFOX_MIN_VERSION = '140.0';
