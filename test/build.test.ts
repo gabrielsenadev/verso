@@ -13,7 +13,7 @@ import {
 
 // Build into a scratch directory so running the tests never wipes the
 // `dist/` an unpacked extension may be loaded from.
-const OUT_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'ytms-build-test-'));
+const OUT_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'verso-build-test-'));
 
 function build(target: string, options: BuildOptions = {}): string {
   return buildInto(target, { outRoot: OUT_ROOT, ...options });
@@ -145,7 +145,7 @@ for (const target of TARGETS) {
     for (const file of BUNDLES) {
       const bundle = fs.readFileSync(path.join(outDir, file), 'utf8');
       assert.doesNotMatch(bundle, /console\./, `${file} still calls console`);
-      assert.doesNotMatch(bundle, /\[YTMS\]/, `${file} still ships the log prefix`);
+      assert.doesNotMatch(bundle, /\[Verso\]/, `${file} still ships the log prefix`);
     }
   });
 
@@ -155,7 +155,7 @@ for (const target of TARGETS) {
     for (const file of BUNDLES) {
       const bundle = fs.readFileSync(path.join(outDir, file), 'utf8');
       assert.match(bundle, /console\./, `${file} dropped console in dev`);
-      assert.match(bundle, /\[YTMS\]/, `${file} dropped the log prefix in dev`);
+      assert.match(bundle, /\[Verso\]/, `${file} dropped the log prefix in dev`);
     }
   });
 }

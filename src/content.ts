@@ -26,7 +26,7 @@ const SELECTORS = {
   tabContent: 'ytmusic-player-page #tab-content',
 } as const;
 
-const CONTAINER_ID = 'ytms-synced-lyrics-container';
+const CONTAINER_ID = 'verso-container';
 
 /** Coalesces bursts of DOM mutations into one reconcile pass. */
 const RECONCILE_DELAY_MS = 100;
@@ -379,16 +379,16 @@ function createLyricsContainer(lyrics: TimedLyrics): HTMLElement {
   container.id = CONTAINER_ID;
 
   const scrollWrapper = document.createElement('div');
-  scrollWrapper.className = 'ytms-lyrics-scroll-wrapper';
+  scrollWrapper.className = 'verso-lyrics-scroll-wrapper';
 
   const spacerTop = document.createElement('div');
-  spacerTop.className = 'ytms-lyrics-spacer-top';
+  spacerTop.className = 'verso-lyrics-spacer-top';
 
   const linesWrapper = document.createElement('div');
-  linesWrapper.className = 'ytms-lyrics-lines';
+  linesWrapper.className = 'verso-lyrics-lines';
   linesWrapper.addEventListener('click', (e) => {
     if (!(e.target instanceof Element)) return;
-    const line = e.target.closest<HTMLElement>('.ytms-lyric-line');
+    const line = e.target.closest<HTMLElement>('.verso-lyric-line');
     const startMs = state.timedLyrics?.[Number(line?.dataset['index'])]?.startMs;
     if (startMs !== undefined) seekTo(startMs);
   });
@@ -397,21 +397,21 @@ function createLyricsContainer(lyrics: TimedLyrics): HTMLElement {
     // A native button is focusable and activated by Enter/Space on its own.
     const lineEl = document.createElement('button');
     lineEl.type = 'button';
-    lineEl.className = 'ytms-lyric-line';
+    lineEl.className = 'verso-lyric-line';
     lineEl.dataset['index'] = String(index);
     lineEl.textContent = line.text || '♪';
     linesWrapper.appendChild(lineEl);
   });
 
   const spacerBottom = document.createElement('div');
-  spacerBottom.className = 'ytms-lyrics-spacer-bottom';
+  spacerBottom.className = 'verso-lyrics-spacer-bottom';
 
   scrollWrapper.append(spacerTop, linesWrapper, spacerBottom);
   container.appendChild(scrollWrapper);
 
   if (lyrics.source) {
     const source = document.createElement('div');
-    source.className = 'ytms-lyrics-source';
+    source.className = 'verso-lyrics-source';
     source.textContent = lyrics.source;
     container.appendChild(source);
   }
@@ -485,10 +485,10 @@ function updateActiveLineDOM(activeIndex: number): void {
   const container = state.lyricsContainer;
   if (!container) return;
 
-  const lines = container.querySelectorAll('.ytms-lyric-line');
+  const lines = container.querySelectorAll('.verso-lyric-line');
   lines.forEach((line, i) => {
-    line.classList.toggle('ytms-active', i === activeIndex);
-    line.classList.toggle('ytms-past', i < activeIndex);
+    line.classList.toggle('verso-active', i === activeIndex);
+    line.classList.toggle('verso-past', i < activeIndex);
     if (i === activeIndex) line.setAttribute('aria-current', 'true');
     else line.removeAttribute('aria-current');
   });
@@ -503,7 +503,7 @@ function scrollToActiveLine(
 
   // Before the first lyric starts, keep the first line in view
   const activeLine = container.querySelector<HTMLElement>(
-    `.ytms-lyric-line[data-index="${Math.max(activeIndex, 0)}"]`
+    `.verso-lyric-line[data-index="${Math.max(activeIndex, 0)}"]`
   );
   if (!activeLine) return;
 

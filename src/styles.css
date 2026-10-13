@@ -1,5 +1,5 @@
 /* ===== Container ===== */
-#ytms-synced-lyrics-container {
+#verso-container {
   position: relative;
   width: 100%;
   height: 100%;
@@ -11,7 +11,7 @@
 }
 
 /* ===== Scroll Wrapper ===== */
-.ytms-lyrics-scroll-wrapper {
+.verso-lyrics-scroll-wrapper {
   height: 100%;
   overflow-y: auto;
   scroll-behavior: smooth;
@@ -20,18 +20,18 @@
   -ms-overflow-style: none;
 }
 
-.ytms-lyrics-scroll-wrapper::-webkit-scrollbar {
+.verso-lyrics-scroll-wrapper::-webkit-scrollbar {
   display: none;
 }
 
 /* ===== Spacers (center first/last lines) ===== */
-.ytms-lyrics-spacer-top,
-.ytms-lyrics-spacer-bottom {
+.verso-lyrics-spacer-top,
+.verso-lyrics-spacer-bottom {
   height: 45%;
 }
 
 /* ===== Lyric Lines ===== */
-.ytms-lyric-line {
+.verso-lyric-line {
   /* Reset the native <button> look */
   display: block;
   width: 100%;
@@ -50,30 +50,30 @@
   will-change: color;
 }
 
-.ytms-lyric-line:hover {
+.verso-lyric-line:hover {
   color: rgba(255, 255, 255, 0.65);
 }
 
-.ytms-lyric-line:focus-visible {
+.verso-lyric-line:focus-visible {
   outline: 2px solid rgba(255, 255, 255, 0.8);
   outline-offset: 2px;
   border-radius: 4px;
 }
 
 /* ===== Active Line ===== */
-.ytms-lyric-line.ytms-active {
+.verso-lyric-line.verso-active {
   color: rgba(255, 255, 255, 1.0);
   font-size: 24px;
   font-weight: 700;
 }
 
 /* ===== Past Lines ===== */
-.ytms-lyric-line.ytms-past {
+.verso-lyric-line.verso-past {
   color: rgba(255, 255, 255, 0.35);
 }
 
 /* ===== Source Attribution ===== */
-.ytms-lyrics-source {
+.verso-lyrics-source {
   position: absolute;
   bottom: 8px;
   left: 0;

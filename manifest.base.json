@@ -1,7 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Synced Lyrics for YouTube Music",
+  "name": "Verso – Synced Lyrics for YouTube Music",
   "description": "Karaoke-style, time-synced lyrics in the YouTube Music lyrics tab.",
+  "homepage_url": "https://github.com/gabrielsenadev/verso",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",

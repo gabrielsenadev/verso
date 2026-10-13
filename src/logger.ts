@@ -16,7 +16,7 @@ const LOG_LEVELS: Record<LogLevel, number> = {
   silent: 4,
 };
 
-const PREFIX = '[YTMS]';
+const PREFIX = '[Verso]';
 
 /** Production is silent; development logs everything. */
 const ACTIVE_LEVEL: LogLevel = __DEV__ ? 'debug' : 'silent';
