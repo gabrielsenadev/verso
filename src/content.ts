@@ -46,6 +46,11 @@ interface TimedLyricLine {
 
 interface TimedLyrics {
   lines: TimedLyricLine[];
+  /**
+   * Whether lines carry start times. Some sources (e.g. LyricFind) send
+   * `timedLyricsData` without any `cueRange`: shown styled, but not synced.
+   */
+  synced: boolean;
   /** Attribution as the API returned it, e.g. "Source: Musixmatch". */
   source: string | null;
 }
@@ -375,7 +380,14 @@ function parseTimedLyrics(responseData: unknown): TimedLyrics | null {
     return null;
   }
 
-  const lines = timedData.filter(isRecord).map((entry) => {
+  const entries = timedData.filter(isRecord);
+  const synced = entries.some(
+    (entry) =>
+      isRecord(entry['cueRange']) &&
+      entry['cueRange']['startTimeMilliseconds'] !== undefined
+  );
+
+  const lines = entries.map((entry) => {
     const cueRange = isRecord(entry['cueRange']) ? entry['cueRange'] : {};
     return {
       text: typeof entry['lyricLine'] === 'string' ? entry['lyricLine'] : '',
@@ -384,7 +396,7 @@ function parseTimedLyrics(responseData: unknown): TimedLyrics | null {
     };
   });
 
-  return { lines, source: readText(lyricsData['sourceMessage']) };
+  return { lines, synced, source: readText(lyricsData['sourceMessage']) };
 }
 
 // ===== DOM MODULE =====
@@ -392,6 +404,7 @@ function parseTimedLyrics(responseData: unknown): TimedLyrics | null {
 function createLyricsContainer(lyrics: TimedLyrics): HTMLElement {
   const container = document.createElement('div');
   container.id = CONTAINER_ID;
+  container.classList.toggle('verso-unsynced', !lyrics.synced);
 
   const scrollWrapper = document.createElement('div');
   scrollWrapper.className = 'verso-lyrics-scroll-wrapper';
@@ -409,9 +422,10 @@ function createLyricsContainer(lyrics: TimedLyrics): HTMLElement {
   });
 
   lyrics.lines.forEach((line, index) => {
-    // A native button is focusable and activated by Enter/Space on its own.
-    const lineEl = document.createElement('button');
-    lineEl.type = 'button';
+    // A native button is focusable and activated by Enter/Space on its own;
+    // unsynced lines have nowhere to seek to, so they're plain text.
+    const lineEl = document.createElement(lyrics.synced ? 'button' : 'div');
+    if (lineEl instanceof HTMLButtonElement) lineEl.type = 'button';
     lineEl.className = 'verso-lyric-line';
     lineEl.dataset['index'] = String(index);
     lineEl.textContent = line.text || '♪';
@@ -692,9 +706,10 @@ async function loadLyrics(browseId: string): Promise<void> {
     return;
   }
 
-  log.info('Timed lyrics:', lyrics.lines.length, 'lines');
+  log.info('Timed lyrics:', lyrics.lines.length, 'lines, synced:', lyrics.synced);
   destroyLyricsContainer();
-  state.timedLyrics = lyrics.lines;
+  // Without start times every line would "start" at 0, so leave sync off
+  state.timedLyrics = lyrics.synced ? lyrics.lines : null;
   state.lyricsContainer = createLyricsContainer(lyrics);
   injectContainer(state.lyricsContainer);
   syncActiveLine(true);

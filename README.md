@@ -4,7 +4,7 @@
 
 <h1 align="center">Welcome to Verso 👋</h1>
 <p>
-  <img alt="Version" src="https://img.shields.io/badge/version-1.0.1-blue.svg?cacheSeconds=2592000" />
+  <img alt="Version" src="https://img.shields.io/badge/version-1.0.2-blue.svg?cacheSeconds=2592000" />
   <img alt="Chrome" src="https://img.shields.io/badge/chrome-%3E%3D120-blue.svg" />
   <img alt="Firefox" src="https://img.shields.io/badge/firefox-%3E%3D140-blue.svg" />
   <a href="#" target="_blank">

@@ -72,6 +72,20 @@
   color: rgba(255, 255, 255, 0.35);
 }
 
+/* ===== Unsynced Lyrics (no line timings: no active line, nothing to seek) ===== */
+.verso-unsynced .verso-lyrics-spacer-top {
+  height: 16px;
+}
+
+.verso-unsynced .verso-lyrics-spacer-bottom {
+  height: 48px;
+}
+
+.verso-unsynced .verso-lyric-line {
+  color: rgba(255, 255, 255, 0.85);
+  cursor: auto;
+}
+
 /* ===== Source Attribution ===== */
 .verso-lyrics-source {
   position: absolute;
