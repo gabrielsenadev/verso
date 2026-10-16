@@ -27,7 +27,7 @@ const BUNDLES = ['content.js'];
 const STATIC_FILES = ['styles.css'];
 const ICONS = ['icons/icon16.png', 'icons/icon48.png', 'icons/icon128.png'];
 
-const TARGETS = ['chrome', 'firefox'] as const;
+const TARGETS = ['chrome', 'edge', 'firefox'] as const;
 
 function readBuiltManifest(target: string): Record<string, any> {
   const outDir = build(target);
@@ -195,6 +195,12 @@ test('chrome: declares the minimum version the bundle targets', () => {
   // `world: "MAIN"` content scripts landed in Chrome 111.
   assert.ok(parseInt(manifest['minimum_chrome_version'], 10) >= 111);
   assert.equal(manifest['browser_specific_settings'], undefined);
+});
+
+test('edge: ships the Chrome manifest unchanged', () => {
+  // Edge runs Chrome MV3 extensions as-is and reads `minimum_chrome_version`
+  // against its Chromium version, so nothing Edge-specific is needed.
+  assert.deepEqual(readBuiltManifest('edge'), readBuiltManifest('chrome'));
 });
 
 test('firefox: declares an add-on id and a MAIN-world-capable minimum', () => {

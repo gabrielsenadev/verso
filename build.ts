@@ -10,6 +10,10 @@
  * The sources are identical across targets; only the manifest differs:
  *
  * - Chrome: `minimum_chrome_version`, matching the bundler target.
+ * - Edge: same as Chrome. Edge is Chromium-based, honours
+ *   `minimum_chrome_version` against its Chromium version, and runs Chrome
+ *   MV3 extensions unchanged; it gets its own directory so the Partner
+ *   Center upload is built and packaged separately.
  * - Firefox: `browser_specific_settings` — an explicit add-on id (required
  *   under MV3), the data collection declaration AMO requires, and the
  *   minimum versions that support it (which also cover `world: "MAIN"`).
@@ -51,6 +55,11 @@ export const TARGETS = {
     // Comfortably above Chrome 111, where `world: "MAIN"` content scripts landed.
     minimum_chrome_version: CHROME_MIN_VERSION,
     esbuildTarget: [`chrome${CHROME_MIN_VERSION}`],
+  },
+  edge: {
+    // Edge versions track Chromium, so the Chrome minimum carries over as-is.
+    minimum_chrome_version: CHROME_MIN_VERSION,
+    esbuildTarget: [`edge${CHROME_MIN_VERSION}`],
   },
   firefox: {
     browser_specific_settings: {

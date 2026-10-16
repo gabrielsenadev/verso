@@ -1,7 +1,7 @@
 {
   "name": "verso",
   "version": "1.0.2",
-  "description": "Verso – Synced Lyrics for YouTube Music (Chrome + Firefox extension)",
+  "description": "Verso – Synced Lyrics for YouTube Music (Chrome, Edge + Firefox extension)",
   "license": "MIT",
   "author": "Gabriel Sena",
   "private": true,
@@ -14,12 +14,13 @@
   "scripts": {
     "build": "node --disable-warning=ExperimentalWarning build.ts",
     "build:chrome": "pnpm run build chrome",
+    "build:edge": "pnpm run build edge",
     "build:firefox": "pnpm run build firefox",
     "build:dev": "pnpm run build --dev",
     "dev:firefox": "pnpm run build firefox --dev && web-ext run --source-dir dist/firefox --target firefox-desktop",
     "lint:firefox": "pnpm run build:firefox && web-ext lint --source-dir dist/firefox",
     "typecheck": "tsc --noEmit",
-    "package": "pnpm run build && web-ext build --source-dir dist/chrome --artifacts-dir dist/artifacts --filename verso-chrome-{version}.zip --overwrite-dest && web-ext build --source-dir dist/firefox --artifacts-dir dist/artifacts --filename verso-firefox-{version}.zip --overwrite-dest",
+    "package": "pnpm run build && web-ext build --source-dir dist/chrome --artifacts-dir dist/artifacts --filename verso-chrome-{version}.zip --overwrite-dest && web-ext build --source-dir dist/edge --artifacts-dir dist/artifacts --filename verso-edge-{version}.zip --overwrite-dest && web-ext build --source-dir dist/firefox --artifacts-dir dist/artifacts --filename verso-firefox-{version}.zip --overwrite-dest",
     "clean": "node -e \"import('node:fs').then(({rmSync})=>rmSync('dist',{recursive:true,force:true}))\"",
     "test": "pnpm run typecheck && node --disable-warning=ExperimentalWarning --test \"test/**/*.test.ts\""
   },
