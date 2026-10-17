@@ -5,7 +5,7 @@
 <h1 align="center">Verso</h1>
 
 <p align="center">
-  <strong>Karaoke-style, time-synced lyrics for YouTube Music.</strong>
+  <strong>Karaoke-style, time-synced lyrics and a distraction-free focus mode for YouTube Music.</strong>
 </p>
 
 <p align="center">
@@ -29,7 +29,7 @@
 </p>
 
 <p align="center">
-  <img alt="Verso showing synced lyrics in YouTube Music" src="screen-verso.png" width="720" />
+  <img alt="Verso focus mode, before and after comparison, and synced lyrics in YouTube Music" src="docs/images/showcase.png" width="720" />
 </p>
 
 ## ✨ Features
@@ -37,6 +37,7 @@
 - 🎤 **Synced lyrics** – the current line is highlighted in real time as the song plays.
 - 📜 **Auto-scroll** – the lyrics list follows the music so you never lose your place.
 - ⏩ **Click to seek** – click any line to jump straight to that part of the song.
+- 🎧 **Focus mode** – a full-screen view with just the cover (or video), the playback controls and the lyrics, over a background taken from the artwork. Open it from the button in the player bar; close it with ✕ or `Esc`.
 - 🔒 **Private by design** – no permissions, no tracking, no data collection.
 
 ## 📦 Install

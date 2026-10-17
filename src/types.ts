@@ -36,6 +36,13 @@ export interface State {
   lyricsTabElement: HTMLElement | null;
   /** Whether the Lyrics tab was selected on the last reconcile. */
   lyricsTabOpen: boolean;
+  /** Full-screen overlay with the player, its controls and the lyrics. */
+  focusMode: boolean;
+  focusOverlay: HTMLElement | null;
+  /** Song whose lyrics browse id was last looked up through the API. */
+  lyricsLookupVideoId: string | null;
+  /** Artwork the focus mode background color was last taken from. */
+  focusColorSource: string | null;
 }
 
 /** Any object reached while walking an untyped InnerTube response. */
@@ -46,6 +53,17 @@ export interface MoviePlayer extends HTMLElement {
   getVideoData?: () => { video_id?: string } | undefined;
   getCurrentTime?: () => number;
   seekTo?: (seconds: number, allowSeekAhead: boolean) => void;
+  getDuration?: () => number;
+  /** The watch response for the loaded video; `lengthSeconds` is a numeric string. */
+  getPlayerResponse?: () =>
+    | { videoDetails?: { videoId?: string; lengthSeconds?: string } }
+    | undefined;
+  /** 0–100. */
+  getVolume?: () => number;
+  setVolume?: (volume: number) => void;
+  isMuted?: () => boolean;
+  mute?: () => void;
+  unMute?: () => void;
 }
 
 /** Polymer's `<dom-repeat>`, which stamps the player page tabs. */

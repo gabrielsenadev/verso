@@ -52,6 +52,15 @@ export function createLyricsContainer(lyrics: TimedLyrics): HTMLElement {
 }
 
 export function injectContainer(container: HTMLElement): void {
+  if (state.focusMode) {
+    // The tab stays untouched underneath, YTM's own lyrics included
+    const focusTarget = document.querySelector(SELECTORS.focusLyrics);
+    if (focusTarget) {
+      focusTarget.prepend(container);
+      return;
+    }
+  }
+
   // Sit exactly where YouTube Music renders its own lyrics
   const nativeShelf =
     document.querySelector<HTMLElement>(SELECTORS.lyricsShelf) ??

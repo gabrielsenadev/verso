@@ -13,4 +13,8 @@ export const state: State = {
   staleRetries: 0,
   lyricsTabElement: null,
   lyricsTabOpen: false,
+  lyricsLookupVideoId: null,
+  focusMode: false,
+  focusOverlay: null,
+  focusColorSource: null,
 };

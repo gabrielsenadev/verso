@@ -80,6 +80,19 @@ for (const target of TARGETS) {
     assert.deepEqual(leaked, []);
   });
 
+  test(`${target}: source-only module folders are not copied`, () => {
+    const outDir = build(target);
+    const empty = fs
+      .readdirSync(outDir, { recursive: true })
+      .map(String)
+      .filter((entry) => {
+        const full = path.join(outDir, entry);
+        return fs.statSync(full).isDirectory() && fs.readdirSync(full).length === 0;
+      });
+
+    assert.deepEqual(empty, []);
+  });
+
   test(`${target}: bundles are self-contained, with no module syntax left`, () => {
     const outDir = build(target);
 

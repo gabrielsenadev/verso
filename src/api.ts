@@ -1,4 +1,5 @@
-import { ANDROID_CLIENT, BROWSE_ENDPOINT } from './constants.ts';
+import { ANDROID_CLIENT, BROWSE_ENDPOINT, NEXT_ENDPOINT } from './constants.ts';
+import { findBrowseIdInObject } from './tabs.ts';
 import type { TimedLyrics } from './types.ts';
 import { findObjectWithKey, isRecord, readText } from './utils.ts';
 
@@ -10,9 +11,9 @@ export function getApiKey(): string | null {
   }
 }
 
-export async function fetchTimedLyrics(browseId: string): Promise<TimedLyrics | null> {
+async function postInnerTube(endpoint: string, params: Record<string, string>): Promise<unknown> {
   const apiKey = getApiKey();
-  const url = `https://music.youtube.com${BROWSE_ENDPOINT}${apiKey ? '&key=' + encodeURIComponent(apiKey) : ''}`;
+  const url = `https://music.youtube.com${endpoint}${apiKey ? '&key=' + encodeURIComponent(apiKey) : ''}`;
 
   const response = await fetch(url, {
     method: 'POST',
@@ -28,16 +29,44 @@ export async function fetchTimedLyrics(browseId: string): Promise<TimedLyrics | 
           gl: window.ytcfg?.data_?.INNERTUBE_CONTEXT_GL || 'US',
         },
       },
-      browseId,
+      ...params,
     }),
   });
 
   if (!response.ok) {
-    throw new Error(`Lyrics API returned ${response.status}`);
+    throw new Error(`InnerTube ${endpoint} returned ${response.status}`);
   }
 
-  const data: unknown = await response.json();
-  return parseTimedLyrics(data);
+  return response.json();
+}
+
+export async function fetchTimedLyrics(browseId: string): Promise<TimedLyrics | null> {
+  return parseTimedLyrics(await postInnerTube(BROWSE_ENDPOINT, { browseId }));
+}
+
+/**
+ * Looks up the lyrics browse id for a song straight from the watch-next data,
+ * for when the page's Lyrics tab can't tell (never rendered, not yet updated).
+ */
+export async function fetchLyricsBrowseId(videoId: string): Promise<string | null> {
+  return parseLyricsBrowseId(await postInnerTube(NEXT_ENDPOINT, { videoId }));
+}
+
+export function parseLyricsBrowseId(responseData: unknown): string | null {
+  const tabbed = findObjectWithKey(responseData, 'watchNextTabbedResultsRenderer');
+  const tabs = tabbed?.['watchNextTabbedResultsRenderer'];
+  const list = isRecord(tabs) && Array.isArray(tabs['tabs']) ? tabs['tabs'] : [];
+
+  for (const tab of list) {
+    const tabRenderer = isRecord(tab) ? tab['tabRenderer'] : null;
+    if (!isRecord(tabRenderer)) continue;
+    // Only the endpoint: the "Up next" tab's content holds a whole queue.
+    const browseId = findBrowseIdInObject(tabRenderer['endpoint']);
+    if (!browseId) continue;
+    // Songs without lyrics keep the tab, marked unselectable.
+    return tabRenderer['unselectable'] === true ? null : browseId;
+  }
+  return null;
 }
 
 export function parseTimedLyrics(responseData: unknown): TimedLyrics | null {

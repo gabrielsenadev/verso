@@ -1,7 +1,7 @@
 {
   "name": "verso",
   "version": "1.0.2",
-  "description": "Verso – Synced Lyrics for YouTube Music (Chrome, Edge + Firefox extension)",
+  "description": "Verso – Synced lyrics and focus mode for YouTube Music (Chrome, Edge + Firefox extension)",
   "license": "MIT",
   "author": "Gabriel Sena",
   "private": true,

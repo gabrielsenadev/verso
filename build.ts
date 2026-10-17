@@ -109,8 +109,17 @@ export function buildManifest(target: string): Record<string, unknown> {
 function copyStaticAssets(from: string, to: string): void {
   fs.cpSync(from, to, {
     recursive: true,
-    filter: (src) => !src.endsWith('.ts'),
+    filter: (src) =>
+      fs.statSync(src).isDirectory() ? hasStaticAssets(src) : !src.endsWith('.ts'),
   });
+}
+
+/** Whether `dir` holds anything but TS sources, so module folders aren't copied empty. */
+function hasStaticAssets(dir: string): boolean {
+  return fs
+    .readdirSync(dir, { recursive: true })
+    .map(String)
+    .some((entry) => !entry.endsWith('.ts') && fs.statSync(path.join(dir, entry)).isFile());
 }
 
 function resolveMode(mode?: Mode): Mode {

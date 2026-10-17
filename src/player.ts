@@ -36,3 +36,32 @@ export function getCurrentSongMs(): number | null {
   const video = state.videoElement;
   return video ? video.currentTime * 1000 : null;
 }
+
+/**
+ * Length of the current song in ms, or `null` before it's known. Prefers the
+ * length the server announced: while a stream is still being fetched, the
+ * player's and media element's durations can cover only what has loaded so
+ * far, growing as playback goes on (e.g. 0:19, then 1:05, then 3:39).
+ */
+export function getSongDurationMs(): number | null {
+  try {
+    const details = getMoviePlayer()?.getPlayerResponse?.()?.videoDetails;
+    const seconds = Number(details?.lengthSeconds);
+    // The response may still be the previous song's right after a change
+    if (details?.videoId === getVideoId() && Number.isFinite(seconds) && seconds > 0) {
+      return seconds * 1000;
+    }
+  } catch {
+    // Fall through to the player's own duration
+  }
+  try {
+    const seconds = getMoviePlayer()?.getDuration?.();
+    if (typeof seconds === 'number' && Number.isFinite(seconds) && seconds > 0) {
+      return seconds * 1000;
+    }
+  } catch {
+    // Fall through to the media element
+  }
+  const duration = state.videoElement?.duration;
+  return duration && Number.isFinite(duration) ? duration * 1000 : null;
+}

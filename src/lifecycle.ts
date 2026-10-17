@@ -1,12 +1,20 @@
 import { log } from './logger.ts';
-import { fetchTimedLyrics } from './api.ts';
+import { fetchLyricsBrowseId, fetchTimedLyrics } from './api.ts';
 import { RECONCILE_DELAY_MS, SELECTORS, STALE_RETRY_DELAY_MS, STALE_RETRY_LIMIT } from './constants.ts';
+import {
+  enterFocusMode,
+  injectFocusButton,
+  setFocusMessage,
+  syncFocusMode,
+} from './focus/overlay.ts';
 import { createLyricsContainer, destroyLyricsContainer, injectContainer } from './lyrics/dom.ts';
 import { startSyncLoop, stopSyncLoop, syncActiveLine } from './lyrics/sync.ts';
 import { getVideoId } from './player.ts';
 import { state } from './state.ts';
 import { findLyricsTab, isTabSelected } from './tabs.ts';
 import type { TimedLyrics } from './types.ts';
+
+const LYRICS_UNAVAILABLE = 'Lyrics not available';
 
 export function bindVideo(video: HTMLVideoElement): void {
   if (state.videoElement === video) return;
@@ -21,9 +29,16 @@ export function bindVideo(video: HTMLVideoElement): void {
   video.addEventListener('ended', stopSyncLoop);
   // Seeks from anywhere (lyrics, player bar, keyboard) and background tabs,
   // where animation frames don't run.
-  const onTimeChange = () => syncActiveLine();
+  const onTimeChange = () => {
+    syncActiveLine();
+    syncFocusMode();
+  };
   video.addEventListener('seeked', onTimeChange);
   video.addEventListener('timeupdate', onTimeChange);
+
+  for (const event of ['playing', 'pause', 'volumechange', 'durationchange']) {
+    video.addEventListener(event, syncFocusMode);
+  }
 
   if (!video.paused) startSyncLoop();
 }
@@ -37,6 +52,7 @@ export function resetSongState(newVideoId: string | null): void {
   state.activeLine = -1;
   state.lyricsContainer = null;
   state.staleRetries = 0;
+  setFocusMessage('');
 }
 
 export function scheduleReconcile(delayMs = RECONCILE_DELAY_MS): void {
@@ -54,12 +70,20 @@ export function scheduleReconcile(delayMs = RECONCILE_DELAY_MS): void {
 export function reconcile(): void {
   const video = document.querySelector<HTMLVideoElement>(SELECTORS.video);
   if (video) bindVideo(video);
+  injectFocusButton(() => {
+    enterFocusMode();
+    // Focus mode shows lyrics even if the Lyrics tab was never opened
+    scheduleReconcile();
+  });
 
   const videoId = getVideoId();
   if (videoId && videoId !== state.currentVideoId) {
     log.info('Song change detected:', videoId);
     resetSongState(videoId);
   }
+  syncFocusMode();
+  // Focus mode needs the lyrics whichever tab is open, or if none ever was
+  if (state.focusMode && videoId) void lookUpLyrics(videoId);
 
   const lyricsTab = findLyricsTab();
   state.lyricsTabElement = lyricsTab?.element ?? null;
@@ -73,6 +97,8 @@ export function reconcile(): void {
     if (state.staleRetries < STALE_RETRY_LIMIT) {
       state.staleRetries++;
       scheduleReconcile(STALE_RETRY_DELAY_MS);
+    } else if (!browseId) {
+      setFocusMessage(LYRICS_UNAVAILABLE);
     }
     return;
   }
@@ -92,6 +118,28 @@ export function reconcile(): void {
   }
 }
 
+/** Finds the song's lyrics through the API rather than the Lyrics tab; once per song. */
+async function lookUpLyrics(videoId: string): Promise<void> {
+  if (state.lyricsLookupVideoId === videoId) return;
+  state.lyricsLookupVideoId = videoId;
+
+  let browseId: string | null;
+  try {
+    browseId = await fetchLyricsBrowseId(videoId);
+  } catch (err) {
+    log.error('Failed to look up lyrics:', err);
+    browseId = null;
+  }
+  if (state.currentVideoId !== videoId) return;
+
+  if (!browseId) {
+    if (!state.currentBrowseId) setFocusMessage(LYRICS_UNAVAILABLE);
+    return;
+  }
+  // Already loaded (or loading) through the Lyrics tab
+  if (browseId !== state.currentBrowseId) void loadLyrics(browseId);
+}
+
 export async function loadLyrics(browseId: string): Promise<void> {
   const videoId = state.currentVideoId;
   // Claimed up front so concurrent reconciles don't fetch the same lyrics
@@ -103,6 +151,7 @@ export async function loadLyrics(browseId: string): Promise<void> {
     lyrics = await fetchTimedLyrics(browseId);
   } catch (err) {
     log.error('Failed to fetch lyrics:', err);
+    if (state.currentBrowseId === browseId) setFocusMessage(LYRICS_UNAVAILABLE);
     return;
   }
 
@@ -113,6 +162,7 @@ export async function loadLyrics(browseId: string): Promise<void> {
   if (!lyrics || lyrics.lines.length === 0) {
     // Leave YouTube Music's own lyrics (or its "not available" message) as is
     log.info('No timed lyrics for this song');
+    setFocusMessage(LYRICS_UNAVAILABLE);
     return;
   }
 

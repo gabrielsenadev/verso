@@ -55,7 +55,7 @@ export function scrollToActiveLine(
   behavior: ScrollBehavior = 'smooth'
 ): void {
   const container = state.lyricsContainer;
-  if (!container || !isLyricsTabOpen()) return;
+  if (!container || !(state.focusMode || isLyricsTabOpen())) return;
 
   // Before the first lyric starts, keep the first line in view
   const activeLine = container.querySelector<HTMLElement>(
