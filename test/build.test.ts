@@ -222,8 +222,18 @@ test('firefox: declares an add-on id and a MAIN-world-capable minimum', () => {
 });
 
 test('content script uses no extension API, so it runs in the MAIN world', () => {
-  const source = readSource('content.ts');
+  const sources = fs
+    .readdirSync(SRC_DIR, { recursive: true })
+    .map(String)
+    .filter((file) => file.endsWith('.ts'));
+  assert.ok(sources.includes('content.ts'));
 
   // MAIN-world scripts have no access to browser.*/chrome.* in either browser.
-  assert.doesNotMatch(source, /\b(?:chrome|browser)\.(?:runtime|storage|tabs)\b/);
+  for (const file of sources) {
+    assert.doesNotMatch(
+      readSource(file),
+      /\b(?:chrome|browser)\.(?:runtime|storage|tabs)\b/,
+      `${file} uses an extension API`
+    );
+  }
 });
