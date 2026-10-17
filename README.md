@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="src/icons/icon128.png" alt="Verso logo" width="96" />
+  <img src="docs/images/verso-icon.png" alt="Verso logo" width="128" />
 </p>
 
 <h1 align="center">Verso</h1>
@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.0.2-blue.svg?cacheSeconds=2592000" />
+  <img alt="Version" src="https://img.shields.io/badge/version-1.1.0-blue.svg?cacheSeconds=2592000" />
   <img alt="Chrome" src="https://img.shields.io/badge/chrome-%3E%3D120-blue.svg" />
   <img alt="Edge" src="https://img.shields.io/badge/edge-%3E%3D120-blue.svg" />
   <img alt="Firefox" src="https://img.shields.io/badge/firefox-%3E%3D140-blue.svg" />

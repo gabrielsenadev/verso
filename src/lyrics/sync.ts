@@ -34,7 +34,9 @@ export function syncActiveLine(force = false): void {
   log.debug('Active line', newActiveLine, '| song ms', Math.round(currentMs));
   state.activeLine = newActiveLine;
   updateActiveLineDOM(newActiveLine);
-  scrollToActiveLine(newActiveLine, force ? 'instant' : 'smooth');
+  // Hidden tabs don't animate: a smooth scroll started there stalls, and every
+  // later one queues behind it until the user scrolls by hand
+  scrollToActiveLine(newActiveLine, force || document.hidden ? 'instant' : 'smooth');
 }
 
 export function updateActiveLineDOM(activeIndex: number): void {
